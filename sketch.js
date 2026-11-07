@@ -6,9 +6,7 @@ let quietStarted = 0;
 let rubAmount = 0;
 let rubTarget = 600;
 
-// timer and alarm controls.
-let minutesInput;
-let secondsInput;
+// alarm controls.
 let alarmInput;
 let message;
 
@@ -44,21 +42,6 @@ function setup() {
   barkAudio.volume = 0.5;
   barkAudio.preload = "auto";
 
-
-  // Timer controls.
-  createP("Set timer:");
-
-  createSpan("Minutes: ");
-  minutesInput = createInput("0", "number");
-  minutesInput.attribute("min", "0");
-  minutesInput.style("width", "55px");
-
-  createSpan(" Seconds: ");
-  secondsInput = createInput("10", "number");
-  secondsInput.attribute("min", "0");
-  secondsInput.style("width", "55px");
-
-  createButton("Start timer").mousePressed(startTimer);
 
   // Clock alarm controls.
   createP("Set alarm using your device's local time:");
@@ -103,7 +86,7 @@ function draw() {
   textSize(16);
 
   if (stage === "ready") {
-    text("Choose a timer or an alarm below", 250, 80);
+    text("Set an alarm below", 250, 80);
   }
 
   if (stage === "timer") {
@@ -118,7 +101,7 @@ function draw() {
     let secondsLeft = remaining % 60;
 
     text(
-      "Time left: " +
+      "Alarm in: " +
       nf(hoursLeft, 2) + ":" +
       nf(minutesLeft, 2) + ":" +
       nf(secondsLeft, 2),
@@ -209,38 +192,6 @@ function resetWalk() {
   stunnedUntil = 0;
   splashTime = -10000;
   walkHits = 0;
-}
-
-// Start the manually entered countdown.
-function startTimer() {
-  let minutesText = minutesInput.value();
-  let secondsText = secondsInput.value();
-
-  let minutes = Number(minutesText);
-  let seconds = Number(secondsText);
-  let totalSeconds = minutes * 60 + seconds;
-
-  if (
-    minutesText === "" ||
-    secondsText === "" ||
-    !Number.isFinite(totalSeconds) ||
-    !Number.isInteger(minutes) ||
-    !Number.isInteger(seconds) ||
-    minutes < 0 ||
-    seconds < 0 ||
-    totalSeconds <= 0
-  ) {
-    message.html("Enter a valid timer greater than zero.");
-    return;
-  }
-
-  resetSession();
-
-  // Prepare sound from this button click.
-  prepareBarkAudio();
-
-  timerEnds = Date.now() + totalSeconds * 1000;
-  stage = "timer";
 }
 
 // Set the next occurrence of the chosen clock time.
