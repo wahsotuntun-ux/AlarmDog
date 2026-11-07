@@ -54,9 +54,7 @@ let walkHits = 0;
 // Dog animation.
 let headTilt = 0;
 
-// Effects and scenery.
-let hearts = [];
-let confetti = [];
+// Scenery.
 let stars = [];
 let flowers = [];
 let wakeTimeText = "";
@@ -137,7 +135,6 @@ function draw() {
   } else if (stage === "done") {
     drawParkScene();
     drawDog();
-    drawConfetti();
   } else if (stage === "fetch") {
     updateFetch();
     drawBedroom(false);
@@ -152,8 +149,6 @@ function draw() {
       drawSleepZs();
     }
   }
-
-  updateHearts();
 
   // Title.
   let ink = night ? color("#f3efe0") : color("#28332f");
@@ -252,8 +247,6 @@ function resetSession() {
   stopBarking();
 
   draggingBall = false;
-  hearts = [];
-  confetti = [];
 
   resetWalk();
 }
@@ -753,91 +746,6 @@ function drawSleepZs() {
   }
 }
 
-// ---------- Hearts and confetti ----------
-
-function addHeart(x, y) {
-  hearts.push({
-    x: x,
-    y: y,
-    vx: random(-0.5, 0.5),
-    vy: random(-1.6, -0.8),
-    size: random(12, 20),
-    life: 1
-  });
-}
-
-function updateHearts() {
-  let step = min(deltaTime, 50) / 16.67;
-
-  noStroke();
-
-  for (let h of hearts) {
-    h.x += h.vx * step;
-    h.y += h.vy * step;
-    h.life -= 0.015 * step;
-
-    fill(233, 94, 120, 255 * max(h.life, 0));
-    drawHeart(h.x, h.y, h.size);
-  }
-
-  hearts = hearts.filter((h) => h.life > 0);
-}
-
-function drawHeart(x, y, s) {
-  beginShape();
-  vertex(x, y + s * 0.35);
-  bezierVertex(
-    x - s * 0.6, y - s * 0.1,
-    x - s * 0.3, y - s * 0.6,
-    x, y - s * 0.25
-  );
-  bezierVertex(
-    x + s * 0.3, y - s * 0.6,
-    x + s * 0.6, y - s * 0.1,
-    x, y + s * 0.35
-  );
-  endShape(CLOSE);
-}
-
-function startConfetti() {
-  confetti = [];
-
-  let colors = ["#ff8fab", "#ffd166", "#7cc4ea", "#83be49", "#c39bd3"];
-
-  for (let i = 0; i < 90; i++) {
-    confetti.push({
-      x: random(width),
-      y: random(-300, -10),
-      vx: random(-0.8, 0.8),
-      vy: random(1.5, 3.5),
-      angle: random(TWO_PI),
-      spin: random(-0.1, 0.1),
-      c: random(colors)
-    });
-  }
-}
-
-function drawConfetti() {
-  let step = min(deltaTime, 50) / 16.67;
-
-  noStroke();
-
-  for (let p of confetti) {
-    p.x += p.vx * step + sin(millis() / 300 + p.angle) * 0.5;
-    p.y += p.vy * step;
-    p.angle += p.spin * step;
-
-    if (p.y > height + 10) continue;
-
-    push();
-    translate(p.x, p.y);
-    rotate(p.angle);
-    fill(p.c);
-    rect(-4, -2, 8, 4);
-    pop();
-  }
-}
-
 // ---------- Park (finish screen) ----------
 
 function drawParkScene() {
@@ -892,7 +800,6 @@ function finishAlarm() {
     minute: "2-digit"
   });
 
-  startConfetti();
   message.html("Good morning! Set a new alarm whenever you like.");
 }
 
@@ -1028,10 +935,6 @@ function updateFetch() {
 
       ball = { x: homeX + 100, y: ballGround, vx: 0, vy: 0 };
 
-      for (let i = 0; i < 6; i++) {
-        addHeart(dogX + random(-40, 40), 360 + random(-20, 20));
-      }
-
       // The barking gets quieter with every fetch.
       barkAudio.volume = 0.5 * (1 - fetchCount / (fetchTarget + 1));
 
@@ -1039,10 +942,6 @@ function updateFetch() {
         stopBarking();
         stage = "quiet";
         quietStarted = millis();
-
-        for (let i = 0; i < 12; i++) {
-          addHeart(250 + random(-50, 50), 325 + random(-40, 40));
-        }
       }
     }
   }
