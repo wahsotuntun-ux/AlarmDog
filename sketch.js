@@ -9,6 +9,7 @@ let rubTarget = 600;
 // alarm controls.
 let alarmInput;
 let message;
+let alarmClockText = "";
 
 let barkAudio;
 
@@ -32,27 +33,68 @@ let splashTime = -10000;
 let splashWorldX = 0;
 let walkHits = 0;
 
+// Dog animation.
+let headTilt = 0;
+
+// Effects and scenery.
+let hearts = [];
+let confetti = [];
+let stars = [];
+let flowers = [];
+let wakeTimeText = "";
+
 function setup() {
-  createCanvas(500, 500);
+  let canvas = createCanvas(500, 500);
+  canvas.parent("app");
+
   textAlign(CENTER, CENTER);
-  textFont("Arial");
+  textFont("Fredoka, Arial, sans-serif");
 
   barkAudio = new Audio("bark.wav");
   barkAudio.loop = true;
   barkAudio.volume = 0.5;
   barkAudio.preload = "auto";
 
+  // Stars for the bedroom window.
+  for (let i = 0; i < 14; i++) {
+    stars.push({
+      x: random(34, 122),
+      y: random(121, 209),
+      phase: random(TWO_PI)
+    });
+  }
 
-  // Clock alarm controls.
-  createP("Set alarm using your device's local time:");
+  // Flowers for the park.
+  for (let i = 0; i < 14; i++) {
+    flowers.push({
+      x: random(15, 485),
+      y: random(445, 490),
+      c: random(["#ff8fab", "#ffd166", "#ffffff", "#c39bd3"])
+    });
+  }
 
-  alarmInput = createInput("07:00", "time");
-  createButton("Set alarm").mousePressed(setAlarm);
+  // Alarm card under the canvas.
+  let card = createDiv().addClass("alarm-card").parent("app");
+
+  createElement("label", "Wake me up at")
+    .attribute("for", "alarm-time")
+    .parent(card);
+
+  let row = createDiv().addClass("alarm-row").parent(card);
+
+  alarmInput = createInput("07:00", "time")
+    .id("alarm-time")
+    .parent(row);
+
+  createButton("Set alarm")
+    .addClass("alarm-btn")
+    .parent(row)
+    .mousePressed(setAlarm);
+
+  message = createP("").addClass("alarm-status").parent(card);
 }
 
 function draw() {
-  background("#fafbb1");
-
   // Begin the first alarm when the deadline arrives.
   if (
     stage === "timer" &&
@@ -70,23 +112,42 @@ function draw() {
     startWalk();
   }
 
+  let night = stage === "ready" || stage === "timer";
+
   if (stage === "walk") {
     updateWalk();
     drawWalkScene();
-  } else {
+  } else if (stage === "done") {
+    drawParkScene();
     drawDog();
+    drawConfetti();
+  } else {
+    drawBedroom(night);
+    drawBasketBack();
+    drawDog();
+    drawBasketFront();
+
+    if (night) {
+      drawSleepZs();
+    }
   }
 
-  // Title.
-  noStroke();
-  fill(40);
-  textSize(24);
-  text("Pet Buddy", 250, 35);
+  updateHearts();
 
-  textSize(16);
+  // Title.
+  let ink = night ? color("#f3efe0") : color("#28332f");
+
+  noStroke();
+  fill(ink);
+  textSize(26);
+  textStyle(BOLD);
+  text("Pet Buddy", 250, 35);
+  textStyle(NORMAL);
+
+  textSize(17);
 
   if (stage === "ready") {
-    text("Set an alarm below", 250, 80);
+    text("Set an alarm below. I'll nap until then.", 250, 80);
   }
 
   if (stage === "timer") {
@@ -114,19 +175,18 @@ function draw() {
     text("Rub my tummy!", 250, 80);
 
     // Progress bar background.
-    fill("#d6d6bd");
-    rect(150, 435, 200, 15, 7);
+    fill("#e9dcc4");
+    rect(150, 450, 200, 15, 7);
 
     // Progress increases with rubbing movement.
     fill("#397d6b");
     rect(
       150,
-      435,
+      450,
       200 * min(rubAmount / rubTarget, 1),
       15,
       7
     );
-
   }
 
   if (stage === "quiet") {
@@ -143,9 +203,6 @@ function draw() {
   }
 
   if (stage === "walk") {
-    fill(40);
-    textSize(16);
-
     if (millis() < stunnedUntil) {
       text("Splash! Jump over the puddles!", 250, 70);
     } else {
@@ -167,10 +224,18 @@ function draw() {
   }
 
   if (stage === "done") {
-    text("What a great walk! Alarm finished", 250, 80);
+    textSize(24);
+    textStyle(BOLD);
+    text("Good morning!", 250, 78);
+    textStyle(NORMAL);
 
-    textSize(14);
-    text("Puddle splashes: " + walkHits, 250, 105);
+    textSize(15);
+    text(
+      "Up at " + wakeTimeText +
+      "  ·  Puddle splashes: " + walkHits,
+      250,
+      108
+    );
   }
 }
 
@@ -179,6 +244,8 @@ function resetSession() {
   stopBarking();
 
   rubAmount = 0;
+  hearts = [];
+  confetti = [];
 
   resetWalk();
 }
@@ -218,8 +285,11 @@ function setAlarm() {
   );
 
   // Schedule tomorrow if today's time has passed.
+  let tomorrow = false;
+
   if (alarmDate.getTime() <= now.getTime()) {
     alarmDate.setDate(alarmDate.getDate() + 1);
+    tomorrow = true;
   }
 
   resetSession();
@@ -228,26 +298,56 @@ function setAlarm() {
   timerEnds = alarmDate.getTime();
   stage = "timer";
 
-  message.html("Alarm set for " + alarmDate.toLocaleString());
+  alarmClockText =
+    nf(selectedHour, 2) + ":" + nf(selectedMinute, 2);
+
+  message.html(
+    "Alarm set for " +
+    alarmDate.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    }) +
+    (tomorrow ? " tomorrow." : " today.")
+  );
 }
+
+// ---------- The dog ----------
 
 function drawDog(showShadow = true) {
   let barking = stage === "pet" || stage === "walk";
+  let sleeping = stage === "ready" || stage === "timer";
+  let happy = stage === "quiet" || stage === "done";
+
+  push();
+
+  // Slow breathing while asleep.
+  if (sleeping) {
+    let breath = sin(millis() / 700) * 0.02;
+
+    translate(250, 408);
+    scale(1 + breath * 0.5, 1 + breath);
+    translate(-250, -408);
+  }
 
   // Shadow.
   if (showShadow) {
     noStroke();
-    fill("#e8dfd2");
+    fill(0, 0, 0, 25);
     ellipse(250, 408, 238, 28);
   }
-  // Tail wags while barking.
-  let tailAngle = barking
-    ? sin(millis() / 90) * 0.5
-    : 0;
+
+  // Tail wags fast while barking and slowly when happy.
+  let tailAngle = 0;
+
+  if (barking) {
+    tailAngle = sin(millis() / 90) * 0.5;
+  } else if (happy) {
+    tailAngle = sin(millis() / 160) * 0.35;
+  }
 
   push();
 
-// Attach the tail to the right side of the body.
+  // Attach the tail to the right side of the body.
   translate(315, 355);
   rotate(tailAngle);
 
@@ -261,11 +361,10 @@ function drawDog(showShadow = true) {
   strokeWeight(19);
   arc(20, -20, 65, 65, -PI / 2, PI / 2);
 
-// Fluffy tip.
+  // Fluffy tip.
   fluff(20, -52, 30, 30);
 
   pop();
-
 
   // Body and paws.
   fluff(250, 319, 172, 174);
@@ -285,10 +384,127 @@ function drawDog(showShadow = true) {
     text("Rub here", 250, 325);
   }
 
-  // Ears and head.
-  fluff(170, 226, 65, 88);
-  fluff(330, 226, 65, 88);
+  // The head tilts toward a nearby cursor.
+  let targetTilt = 0;
+
+  if (
+    !sleeping &&
+    stage !== "walk" &&
+    dist(mouseX, mouseY, 250, 230) < 140
+  ) {
+    targetTilt = map(mouseX, 110, 390, -0.14, 0.14, true);
+  }
+
+  headTilt = lerp(headTilt, targetTilt, 0.08);
+
+  push();
+  translate(250, 250);
+  rotate(headTilt);
+  translate(-250, -250);
+
+  // Ears droop while asleep, perk up while barking,
+  // and the left one twitches now and then.
+  let earLift = 0;
+
+  if (sleeping) {
+    earLift = 8;
+  } else if (barking) {
+    earLift = -6 + sin(millis() / 100) * 3;
+  }
+
+  let twitch =
+    !sleeping && millis() % 4200 < 180 ? -5 : 0;
+
+  fluff(170, 226 + earLift + twitch, 65, 88);
+  fluff(330, 226 + earLift, 65, 88);
   fluff(250, 222, 167, 126);
+
+  drawEyes(sleeping, happy);
+
+  // Rosy cheeks when happy.
+  if (happy) {
+    noStroke();
+    fill(234, 166, 164, 140);
+    ellipse(200, 252, 20, 11);
+    ellipse(300, 252, 20, 11);
+  }
+
+  // Muzzle.
+  noStroke();
+  fill("#f6eee4");
+  ellipse(250, 248, 63, 40);
+
+  // Nose.
+  fill("#253d37");
+  ellipse(250, 242, 18, 12);
+
+  // Mouth.
+  if (barking) {
+    ellipse(250, 260, 22, 20);
+
+    fill("#eaa6a4");
+    ellipse(250, 265, 12, 9);
+  } else if (happy) {
+    // Tongue out with a smile.
+    fill("#eaa6a4");
+    ellipse(250, 266, 10, 13);
+
+    noFill();
+    stroke("#253d37");
+    strokeWeight(2);
+    line(250, 249, 250, 256);
+    arc(244, 256, 12, 10, 0, PI);
+    arc(256, 256, 12, 10, 0, PI);
+    noStroke();
+  } else {
+    stroke("#253d37");
+    strokeWeight(2);
+
+    line(250, 249, 250, 258);
+    line(250, 258, 242, 255);
+    line(250, 258, 258, 255);
+
+    noStroke();
+  }
+
+  pop();
+
+  // Blue collar and gold tag.
+  noStroke();
+  fill("#00b8e6");
+  rect(209, 273, 82, 12, 5);
+
+  fill("#eac37c");
+  circle(250, 289, 16);
+
+  pop();
+}
+
+function drawEyes(sleeping, happy) {
+  // A quick blink every few seconds.
+  let blink = millis() % 3800 < 130;
+
+  // Closed eyes while asleep or blinking.
+  if (sleeping || blink) {
+    noFill();
+    stroke("#253d37");
+    strokeWeight(2.5);
+    arc(223, 224, 20, 12, 0, PI);
+    arc(277, 224, 20, 12, 0, PI);
+    noStroke();
+    return;
+  }
+
+  // Happy curved eyes.
+  if (happy) {
+    noFill();
+    stroke("#253d37");
+    strokeWeight(3);
+    arc(223, 228, 20, 18, PI, TWO_PI);
+    arc(277, 228, 20, 18, PI, TWO_PI);
+    noStroke();
+    return;
+  }
 
   // Eye whites and outlines.
   fill("#ffffff");
@@ -313,56 +529,21 @@ function drawDog(showShadow = true) {
     dist(mouseX, mouseY, 277, 224) / 15
   );
 
+  let leftX = 223 + cos(leftAngle) * leftMovement;
+  let leftY = 224 + sin(leftAngle) * leftMovement;
+  let rightX = 277 + cos(rightAngle) * rightMovement;
+  let rightY = 224 + sin(rightAngle) * rightMovement;
+
   // Pupils follow the cursor.
   noStroke();
   fill("#253d37");
+  ellipse(leftX, leftY, 11, 14);
+  ellipse(rightX, rightY, 11, 14);
 
-  ellipse(
-    223 + cos(leftAngle) * leftMovement,
-    224 + sin(leftAngle) * leftMovement,
-    11,
-    14
-  );
-
-  ellipse(
-    277 + cos(rightAngle) * rightMovement,
-    224 + sin(rightAngle) * rightMovement,
-    11,
-    14
-  );
-
-  // Muzzle.
-  fill("#f6eee4");
-  ellipse(250, 248, 63, 40);
-
-  // Nose.
-  fill("#253d37");
-  ellipse(250, 242, 18, 12);
-
-  // Mouth.
-  if (barking) {
-    ellipse(250, 260, 22, 20);
-
-    fill("#eaa6a4");
-    ellipse(250, 265, 12, 9);
-  } else {
-    stroke("#253d37");
-    strokeWeight(2);
-
-    line(250, 249, 250, 258);
-    line(250, 258, 242, 255);
-    line(250, 258, 258, 255);
-
-    noStroke();
-  }
-
-  // Blue collar and gold tag.
-  noStroke();
-  fill("#00b8e6");
-  rect(209, 273, 82, 12, 5);
-
-  fill("#eac37c");
-  circle(250, 289, 16);
+  // Little shine in each eye.
+  fill("#ffffff");
+  circle(leftX - 2, leftY - 3, 3.5);
+  circle(rightX - 2, rightY - 3, 3.5);
 }
 
 // Draw a fluffy shape.
@@ -387,6 +568,336 @@ function fluff(cx, cy, w, h) {
   noStroke();
   fill("#ffffff");
   ellipse(cx, cy, w * 0.9, h * 0.9);
+}
+
+// ---------- Bedroom ----------
+
+function drawBedroom(night) {
+  // Wall.
+  background(night ? "#2b3352" : "#fbe7c6");
+
+  // Soft polka-dot wallpaper.
+  noStroke();
+  fill(255, 255, 255, night ? 14 : 90);
+
+  let row = 0;
+
+  for (let y = 20; y < 372; y += 40) {
+    for (let x = row % 2 ? 40 : 20; x < width; x += 40) {
+      circle(x, y, 6);
+    }
+    row++;
+  }
+
+  // Wooden floor.
+  fill(night ? "#4a3b36" : "#c99a6b");
+  rect(0, 380, width, 120);
+
+  stroke(night ? "#3c2f2b" : "#b5865a");
+  strokeWeight(2);
+
+  for (let r = 0; r < 4; r++) {
+    let y = 380 + r * 30;
+    line(0, y + 30, width, y + 30);
+
+    for (let x = (r % 2) * 60 + 30; x < width; x += 120) {
+      line(x, y, x, y + 30);
+    }
+  }
+
+  // Skirting board.
+  noStroke();
+  fill(night ? "#3a3048" : "#f6f0e4");
+  rect(0, 372, width, 10);
+
+  drawWindow(night);
+  drawWallClock(night);
+}
+
+function drawWindow(night) {
+  let x = 28;
+  let y = 115;
+  let w = 100;
+  let h = 100;
+
+  noStroke();
+
+  if (night) {
+    // Night sky with twinkling stars and a crescent moon.
+    fill("#15193a");
+    rect(x, y, w, h);
+
+    for (let s of stars) {
+      fill(255, 255, 230, 150 + sin(millis() / 400 + s.phase) * 105);
+      circle(s.x, s.y, 3);
+    }
+
+    fill("#f6f0c8");
+    circle(x + 68, y + 30, 26);
+    fill("#15193a");
+    circle(x + 75, y + 25, 22);
+  } else {
+    // Sunrise.
+    let bands = ["#ffd6a5", "#ffc48a", "#ffb07a", "#ff9f80"];
+
+    for (let i = 0; i < bands.length; i++) {
+      fill(bands[i]);
+      rect(x, y + i * h / 4, w, h / 4);
+    }
+
+    fill("#ffe58a");
+    arc(x + w / 2, y + h, 54, 54, PI, TWO_PI);
+  }
+
+  // Frame.
+  noFill();
+  stroke(night ? "#e8e1cf" : "#ffffff");
+  strokeWeight(6);
+  rect(x, y, w, h, 3);
+
+  strokeWeight(4);
+  line(x + w / 2, y, x + w / 2, y + h);
+  line(x, y + h / 2, x + w, y + h / 2);
+
+  // Sill.
+  noStroke();
+  fill(night ? "#d8d0bd" : "#ffffff");
+  rect(x - 8, y + h + 2, w + 16, 8, 3);
+
+  // Curtains and rod.
+  fill(night ? "#7a5c9e" : "#e98a7d");
+  rect(x - 14, y - 10, 18, h + 12, 4);
+  rect(x + w - 4, y - 10, 18, h + 12, 4);
+
+  fill("#8a5a35");
+  rect(x - 20, y - 14, w + 40, 5, 2);
+}
+
+function drawWallClock(night) {
+  let now = new Date();
+  let x = 372;
+  let y = 118;
+
+  // Shelf.
+  noStroke();
+  fill(night ? "#5b4a44" : "#a46b3f");
+  rect(x - 8, y + 58, 116, 8, 3);
+
+  // Clock body.
+  fill("#1d2233");
+  rect(x, y, 100, 56, 10);
+
+  // Digits, with a blinking colon.
+  let glow = night ? color("#ff7b7b") : color("#7ce0b5");
+  let digitsY = stage === "timer" ? y + 24 : y + 28;
+
+  fill(glow);
+  textSize(26);
+  textStyle(BOLD);
+  text(nf(now.getHours(), 2), x + 30, digitsY);
+  text(nf(now.getMinutes(), 2), x + 70, digitsY);
+
+  if (now.getSeconds() % 2 === 0) {
+    text(":", x + 50, digitsY - 2);
+  }
+
+  textStyle(NORMAL);
+
+  // Show the alarm time under the clock.
+  if (stage === "timer") {
+    textSize(10);
+    fill(night ? "#ffb3b3" : "#b8f0d8");
+    text("ALARM " + alarmClockText, x + 50, y + 46);
+  }
+}
+
+function drawBasketBack() {
+  noStroke();
+  fill("#8a5a35");
+  ellipse(250, 395, 330, 70);
+
+  // Cushion.
+  fill("#c94f4f");
+  ellipse(250, 392, 290, 48);
+}
+
+function drawBasketFront() {
+  noStroke();
+  fill("#a46b3f");
+  rect(85, 398, 330, 34, 0, 0, 30, 30);
+
+  // Woven lines.
+  stroke("#8a5a35");
+  strokeWeight(2);
+
+  for (let x = 100; x < 410; x += 18) {
+    line(x, 404, x, 426);
+  }
+
+  // Rim.
+  noStroke();
+  fill("#b97a4a");
+  rect(85, 394, 330, 10, 5);
+}
+
+function drawSleepZs() {
+  noStroke();
+
+  for (let i = 0; i < 3; i++) {
+    let t = (millis() / 2400 + i / 3) % 1;
+    let alpha = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
+
+    fill(243, 239, 224, 255 * alpha);
+    textSize(14 + t * 14);
+    text(
+      "z",
+      318 + t * 40 + sin(t * TWO_PI) * 6,
+      190 - t * 70
+    );
+  }
+}
+
+// ---------- Hearts and confetti ----------
+
+function addHeart(x, y) {
+  hearts.push({
+    x: x,
+    y: y,
+    vx: random(-0.5, 0.5),
+    vy: random(-1.6, -0.8),
+    size: random(12, 20),
+    life: 1
+  });
+}
+
+function updateHearts() {
+  let step = min(deltaTime, 50) / 16.67;
+
+  noStroke();
+
+  for (let h of hearts) {
+    h.x += h.vx * step;
+    h.y += h.vy * step;
+    h.life -= 0.015 * step;
+
+    fill(233, 94, 120, 255 * max(h.life, 0));
+    drawHeart(h.x, h.y, h.size);
+  }
+
+  hearts = hearts.filter((h) => h.life > 0);
+}
+
+function drawHeart(x, y, s) {
+  beginShape();
+  vertex(x, y + s * 0.35);
+  bezierVertex(
+    x - s * 0.6, y - s * 0.1,
+    x - s * 0.3, y - s * 0.6,
+    x, y - s * 0.25
+  );
+  bezierVertex(
+    x + s * 0.3, y - s * 0.6,
+    x + s * 0.6, y - s * 0.1,
+    x, y + s * 0.35
+  );
+  endShape(CLOSE);
+}
+
+function startConfetti() {
+  confetti = [];
+
+  let colors = ["#ff8fab", "#ffd166", "#7cc4ea", "#83be49", "#c39bd3"];
+
+  for (let i = 0; i < 90; i++) {
+    confetti.push({
+      x: random(width),
+      y: random(-300, -10),
+      vx: random(-0.8, 0.8),
+      vy: random(1.5, 3.5),
+      angle: random(TWO_PI),
+      spin: random(-0.1, 0.1),
+      c: random(colors)
+    });
+  }
+}
+
+function drawConfetti() {
+  let step = min(deltaTime, 50) / 16.67;
+
+  noStroke();
+
+  for (let p of confetti) {
+    p.x += p.vx * step + sin(millis() / 300 + p.angle) * 0.5;
+    p.y += p.vy * step;
+    p.angle += p.spin * step;
+
+    if (p.y > height + 10) continue;
+
+    push();
+    translate(p.x, p.y);
+    rotate(p.angle);
+    fill(p.c);
+    rect(-4, -2, 8, 4);
+    pop();
+  }
+}
+
+// ---------- Park (finish screen) ----------
+
+function drawParkScene() {
+  background("#cdeefd");
+
+  noStroke();
+  fill("#ffe58a");
+  circle(420, 150, 70);
+
+  // Drifting clouds.
+  fill(255, 255, 255, 220);
+  drawCloud((millis() * 0.012) % 650 - 100, 140);
+  drawCloud((millis() * 0.008 + 300) % 650 - 100, 190);
+
+  // Hills, trees and grass.
+  fill("#a8d58b");
+  ellipse(80, 335, 360, 160);
+  ellipse(430, 345, 380, 150);
+
+  drawTree(60, 335);
+  drawTree(445, 340);
+
+  fill("#8cc66d");
+  rect(0, 335, width, 165);
+
+  // Flowers.
+  for (let f of flowers) {
+    fill(f.c);
+
+    for (let i = 0; i < 5; i++) {
+      let a = TWO_PI * i / 5;
+      circle(f.x + cos(a) * 4, f.y + sin(a) * 4, 6);
+    }
+
+    fill("#f4b942");
+    circle(f.x, f.y, 4);
+  }
+}
+
+function drawCloud(x, y) {
+  circle(x, y, 40);
+  circle(x + 25, y - 10, 50);
+  circle(x + 50, y, 40);
+}
+
+function finishAlarm() {
+  stopBarking();
+  stage = "done";
+
+  wakeTimeText = new Date().toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+
+  startConfetti();
+  message.html("Good morning! Set a new alarm whenever you like.");
 }
 
 // ---------- Walk the dog ----------
@@ -462,8 +973,7 @@ function updateWalk() {
 
   // Reaching the park ends the alarm.
   if (walkDistance >= walkGoal) {
-    stopBarking();
-    stage = "done";
+    finishAlarm();
   }
 }
 
@@ -672,11 +1182,21 @@ function mouseDragged() {
         pmouseY
       );
 
+      // Hearts float up while rubbing.
+      if (random() < 0.15) {
+        addHeart(mouseX, mouseY);
+      }
+
       // Stop the first barking stage.
       if (rubAmount >= rubTarget) {
         stopBarking();
         stage = "quiet";
         quietStarted = millis();
+
+        // A burst of hearts when the dog is happy.
+        for (let i = 0; i < 12; i++) {
+          addHeart(250 + random(-50, 50), 325 + random(-40, 40));
+        }
       }
     }
   }
@@ -690,7 +1210,7 @@ function prepareBarkAudio() {
 
   barkAudio.play().catch(() => {
     message.html(
-      "Audio could not start. Check bark.mp3 and try again."
+      "Audio could not start. Check bark.wav and try again."
     );
   });
 }

@@ -2,159 +2,121 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pet Buddy</title>
-
-    <!-- Installable app settings. -->
-    <link rel="manifest" href="manifest.json" />
-    <meta name="theme-color" content="#397d6b" />
     <link rel="icon" href="icon-192.png" />
-    <link rel="apple-touch-icon" href="icon-192.png" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Pet Buddy" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap"
+    />
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.1/p5.min.js"></script>
+
     <style>
       body {
-        margin: 0 auto;
-        max-width: 532px;
-        padding: 16px;
-        padding-top: max(16px, env(safe-area-inset-top));
-        padding-bottom: max(24px, env(safe-area-inset-bottom));
-        font-family: Arial, sans-serif;
-        font-size: 15px;
-        background: #fdfde6;
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 32px 16px;
+        box-sizing: border-box;
+        background: #e6ecf5;
         color: #28332f;
+        font-family: "Fredoka", Arial, sans-serif;
       }
 
-      .hint {
-        margin: 0 0 12px;
+      #app {
+        width: 500px;
+        max-width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      #app canvas {
+        display: block;
+        border-radius: 18px;
+        box-shadow: 0 12px 30px rgba(35, 42, 69, 0.25);
+      }
+
+      /* Alarm card. */
+      .alarm-card {
+        background: #ffffff;
+        border-radius: 18px;
+        padding: 20px 24px;
+        box-shadow: 0 6px 18px rgba(35, 42, 69, 0.12);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .alarm-card label {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
         color: #5d6a64;
       }
 
-      kbd {
-        font-family: inherit;
-        border: 1px solid #d9dcc4;
-        border-bottom-width: 2px;
-        border-radius: 4px;
-        padding: 0 5px;
-        font-size: 13px;
-      }
-
-      /* Scale the 500px canvas down on narrow screens. */
-      canvas.p5Canvas {
-        display: block;
-        width: min(500px, 100%) !important;
-        height: auto !important;
-        border-radius: 10px;
-      }
-
-      input,
-      button {
-        font: inherit;
-      }
-
-      /* On-screen controls for phones and tablets. */
-      .touch-bar {
-        display: none;
+      .alarm-row {
+        display: flex;
         gap: 12px;
-        margin-top: 12px;
       }
 
-      .touch-bar button {
+      .alarm-row input[type="time"] {
         flex: 1;
-        padding: 14px 0;
+        min-width: 0;
+        padding: 8px 14px;
+        border: 2px solid #d5dde8;
+        border-radius: 12px;
+        background: #f7f9fc;
+        color: #2b3352;
+        font: 600 34px "Fredoka", Arial, sans-serif;
+      }
+
+      .alarm-row input[type="time"]:focus {
+        outline: none;
+        border-color: #397d6b;
+      }
+
+      .alarm-btn {
+        padding: 0 24px;
         border: 0;
-        border-radius: 10px;
+        border-radius: 12px;
         background: #397d6b;
         color: #ffffff;
-        font-weight: bold;
-        font-size: 17px;
-        touch-action: none;
-        user-select: none;
-        -webkit-user-select: none;
+        font: 600 18px "Fredoka", Arial, sans-serif;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.1s;
       }
 
-      .touch-bar button:active {
-        filter: brightness(0.9);
+      .alarm-btn:hover {
+        background: #2f6a5a;
       }
 
-      @media (pointer: coarse) {
-        .touch-bar {
-          display: flex;
-        }
-
-        .keys-hint {
-          display: none;
-        }
+      .alarm-btn:active {
+        transform: scale(0.96);
       }
 
-      @media (pointer: fine) {
-        .touch-hint {
-          display: none;
-        }
+      .alarm-btn:focus-visible {
+        outline: 3px solid #9fd3c3;
+        outline-offset: 2px;
+      }
+
+      .alarm-status {
+        margin: 0;
+        min-height: 1.4em;
+        color: #397d6b;
+        font-weight: 500;
       }
     </style>
   </head>
   <body>
-    <p class="hint keys-hint">
-      On the walk, hold <kbd>→</kbd> to walk and press <kbd>Space</kbd> to jump puddles.
-    </p>
-    <p class="hint touch-hint">
-      On the walk, hold <b>Walk</b> and tap <b>Jump</b> to clear puddles.
-    </p>
-
-    <div class="touch-bar" id="touch-bar">
-      <button type="button" id="walk-btn">Hold to walk →</button>
-      <button type="button" id="jump-btn">Jump ↑</button>
-    </div>
-
+    <main id="app"></main>
     <script src="sketch.js"></script>
-    <script>
-      // Touch controls for the walk stage. They drive the same
-      // game variables the keyboard does.
-      let touchWalk = false;
-
-      window.addEventListener("load", () => {
-        setTimeout(() => {
-          // Move the touch buttons right under the canvas.
-          const bar = document.getElementById("touch-bar");
-          const canvas = document.querySelector("canvas.p5Canvas");
-          if (canvas) canvas.after(bar);
-
-          // A held Walk button counts as a held right arrow.
-          const realKeyIsDown = window.keyIsDown;
-          window.keyIsDown = (code) =>
-            (code === 39 && touchWalk) || realKeyIsDown(code);
-        }, 0);
-      });
-
-      const walkBtn = document.getElementById("walk-btn");
-      const jumpBtn = document.getElementById("jump-btn");
-
-      walkBtn.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        touchWalk = true;
-      });
-
-      ["pointerup", "pointercancel", "pointerleave"].forEach((type) =>
-        walkBtn.addEventListener(type, () => {
-          touchWalk = false;
-        })
-      );
-
-      jumpBtn.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        if (stage === "walk" && jumpY === 0 && millis() >= stunnedUntil) {
-          jumpSpeed = jumpPower;
-        }
-      });
-
-      // Make the app installable and usable offline.
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("sw.js");
-      }
-    </script>
   </body>
 </html>
