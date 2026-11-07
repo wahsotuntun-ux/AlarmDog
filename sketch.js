@@ -51,6 +51,15 @@ let splashTime = -10000;
 let splashWorldX = 0;
 let walkHits = 0;
 
+// Bones to collect on the walk.
+let bones = [];
+let bonesCollected = 0;
+let boostUntil = 0;
+
+// Squirrels that distract the dog.
+let squirrelSpots = [];
+let squirrel = null;
+
 // Dog animation.
 let headTilt = 0;
 
@@ -232,6 +241,12 @@ function draw() {
       12,
       6
     );
+
+    // Bone counter.
+    drawBone(382, 78, 0.6);
+    fill("#28332f");
+    textSize(16);
+    text(bonesCollected, 408, 78);
   }
 
   if (stage === "done") {
@@ -260,6 +275,11 @@ function resetWalk() {
   stunnedUntil = 0;
   splashTime = -10000;
   walkHits = 0;
+  bones = [];
+  bonesCollected = 0;
+  boostUntil = 0;
+  squirrelSpots = [];
+  squirrel = null;
 }
 
 // Set the next occurrence of the chosen clock time.
@@ -1022,6 +1042,27 @@ function startWalk() {
     x += random(350, 550);
   }
 
+  // Place bones between the puddles: low ones are grabbed
+  // by walking past, high ones need a jump.
+  x = 650;
+
+  while (x < walkGoal - 200) {
+    let nearPuddle = puddles.some((p) => abs(p.x - x) < 80);
+
+    if (!nearPuddle) {
+      bones.push({
+        x: x,
+        h: random([60, 165, 190]),
+        gotAt: -1
+      });
+    }
+
+    x += random(170, 260);
+  }
+
+  // Two squirrels pop out along the way.
+  squirrelSpots = [walkGoal * 0.35, walkGoal * 0.7];
+
   barkAudio.volume = 0.5;
   startBarking();
 }
@@ -1036,13 +1077,42 @@ function updateWalk() {
   let step = min(deltaTime, 50) / 16.67;
   let stunned = millis() < stunnedUntil;
 
+  // A squirrel pops out at each spot along the route.
+  if (
+    !squirrel &&
+    squirrelSpots.length > 0 &&
+    walkDistance >= squirrelSpots[0]
+  ) {
+    squirrelSpots.shift();
+    squirrel = {
+      worldX: walkDistance + 250,
+      state: "peek",
+      started: millis()
+    };
+  }
+
+  // A scared squirrel runs off to the right.
+  if (squirrel && squirrel.state === "flee") {
+    squirrel.worldX += 9 * step;
+
+    if (toScreenX(squirrel.worldX) > width + 40) {
+      squirrel = null;
+    }
+  }
+
+  // The dog won't walk while a squirrel is watching.
+  let distracted = squirrel && squirrel.state === "peek";
+
   // Hold the right arrow or D to walk.
   walkingNow =
     !stunned &&
+    !distracted &&
     (keyIsDown(RIGHT_ARROW) || keyIsDown(68));
 
   if (walkingNow) {
-    walkDistance += walkSpeed * step;
+    // A bone gives a short burst of speed.
+    let speed = millis() < boostUntil ? walkSpeed * 1.7 : walkSpeed;
+    walkDistance += speed * step;
   }
 
   // Jump physics.
@@ -1070,9 +1140,31 @@ function updateWalk() {
     }
   }
 
-  // The barking calms down as the park gets closer.
+  // Collect a bone when it touches the dog.
+  let dogBottom = groundY - jumpY;
+  let dogTop = dogBottom - 248 * dogScale;
+
+  for (let b of bones) {
+    let boneY = groundY - b.h;
+
+    if (
+      b.gotAt < 0 &&
+      abs(b.x - walkDistance) < 35 &&
+      boneY > dogTop &&
+      boneY < dogBottom
+    ) {
+      b.gotAt = millis();
+      bonesCollected++;
+      boostUntil = millis() + 1500;
+    }
+  }
+
+  // The barking calms down as the park gets closer,
+  // but gets loud again when a squirrel shows up.
   let progress = min(walkDistance / walkGoal, 1);
-  barkAudio.volume = 0.5 * (1 - progress * 0.7);
+  barkAudio.volume = distracted
+    ? 0.6
+    : 0.5 * (1 - progress * 0.7);
 
   // Reaching the park ends the alarm.
   if (walkDistance >= walkGoal) {
@@ -1148,8 +1240,128 @@ function drawWalkScene() {
     }
   }
 
+  drawWalkBones();
   drawWalkingDog();
+  drawWalkSquirrel();
   drawSplash();
+}
+
+function drawWalkBones() {
+  for (let b of bones) {
+    let bx = toScreenX(b.x);
+    if (bx < -40 || bx > width + 40) continue;
+
+    let by = groundY - b.h + sin(millis() / 300 + b.x) * 3;
+
+    if (b.gotAt < 0) {
+      drawBone(bx, by, 1);
+    } else {
+      // A quick ring where the bone was grabbed.
+      let t = (millis() - b.gotAt) / 350;
+
+      if (t < 1) {
+        noFill();
+        stroke(255, 255, 255, 255 * (1 - t));
+        strokeWeight(3);
+        circle(bx, by, 20 + t * 30);
+        noStroke();
+      }
+    }
+  }
+}
+
+function drawBone(x, y, s) {
+  push();
+  translate(x, y);
+  scale(s);
+  rotate(-0.3);
+
+  stroke("#d9cdb3");
+  strokeWeight(1.5);
+  fill("#f7f1e3");
+  circle(-14, -4, 10);
+  circle(-14, 4, 10);
+  circle(14, -4, 10);
+  circle(14, 4, 10);
+
+  noStroke();
+  rect(-15, -4, 30, 8, 3);
+
+  pop();
+}
+
+function drawWalkSquirrel() {
+  if (!squirrel) return;
+
+  let sx = toScreenX(squirrel.worldX);
+  let groundLine = 366;
+  let rise = 0;
+  let hop = 0;
+
+  if (squirrel.state === "peek") {
+    // Pop up from behind the bush.
+    rise = map(millis() - squirrel.started, 0, 300, 50, 0, true);
+  } else {
+    // Hop away.
+    hop = -abs(sin(millis() / 70)) * 12;
+  }
+
+  drawSquirrel(sx, groundLine + rise + hop);
+
+  // The bush stays where the squirrel was hiding.
+  if (squirrel.state === "peek") {
+    drawBush(sx + 4, groundLine + 12);
+  }
+}
+
+function drawSquirrel(x, y) {
+  push();
+  translate(x, y);
+  scale(1.5);
+  noStroke();
+
+  // Bushy tail that flicks.
+  push();
+  translate(10, -6);
+  rotate(sin(millis() / 120) * 0.15);
+  fill("#a0612d");
+  ellipse(10, -18, 24, 40);
+  ellipse(16, -36, 22, 24);
+  fill("#c27a3c");
+  ellipse(9, -20, 12, 28);
+  pop();
+
+  // Body and belly.
+  fill("#b86f33");
+  ellipse(0, -12, 26, 30);
+  fill("#f2d3a8");
+  ellipse(-5, -10, 11, 18);
+
+  // Head, ear, eye and nose.
+  fill("#b86f33");
+  circle(-8, -30, 20);
+  triangle(-6, -38, -2, -47, 1, -36);
+  fill("#253d37");
+  circle(-12, -32, 4);
+  circle(-17, -29, 3);
+
+  // Paws.
+  fill("#a0612d");
+  ellipse(-6, 2, 8, 5);
+  ellipse(6, 2, 8, 5);
+
+  pop();
+}
+
+function drawBush(x, y) {
+  noStroke();
+  fill("#4f8f4a");
+  circle(x - 18, y + 2, 30);
+  circle(x + 18, y + 2, 30);
+  circle(x, y - 4, 34);
+
+  fill("#5fa35a");
+  circle(x - 8, y - 8, 14);
 }
 
 function drawTree(x, baseY) {
@@ -1187,10 +1399,15 @@ function drawParkGate(x) {
 }
 
 function drawWalkingDog() {
-  // Small bounce while walking.
-  let bob = walkingNow
-    ? abs(sin(millis() / 110)) * 6
-    : 0;
+  // Small bounce while walking, and excited hops
+  // while a squirrel is watching.
+  let bob = 0;
+
+  if (walkingNow) {
+    bob = abs(sin(millis() / 110)) * 6;
+  } else if (squirrel && squirrel.state === "peek") {
+    bob = abs(sin(millis() / 80)) * 10;
+  }
 
   let feetY = groundY - jumpY - bob;
 
@@ -1269,6 +1486,16 @@ function keyPressed() {
 }
 
 function mousePressed() {
+  // Click the squirrel to scare it away.
+  if (
+    stage === "walk" &&
+    squirrel &&
+    squirrel.state === "peek" &&
+    dist(mouseX, mouseY, toScreenX(squirrel.worldX), 335) < 45
+  ) {
+    squirrel.state = "flee";
+  }
+
   // Pick up the ball while the dog is waiting.
   if (
     stage === "fetch" &&
