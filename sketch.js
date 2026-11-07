@@ -2,9 +2,27 @@ let stage = "ready";
 let timerEnds = 0;
 let quietStarted = 0;
 
-// tummy rubbing progress.
-let rubAmount = 0;
-let rubTarget = 600;
+// Fetch settings.
+let fetchTarget = 3;      // throws needed to stop the alarm
+let homeX = 250;          // where the dog waits for the ball
+let fetchFloorY = 470;    // where the dog's paws touch the floor
+let fetchDogScale = 0.68;
+let ballR = 13;
+let ballGround = 466;     // ball's center when it rests on the floor
+
+// Fetch progress.
+let fetchState = "waiting";   // waiting, flying or returning
+let fetchCount = 0;
+let dogX = 250;
+let dogFacing = 1;
+let dogRunning = false;
+let dogChasing = false;
+let ball = { x: 350, y: 466, vx: 0, vy: 0 };
+let draggingBall = false;
+let lastBallX = 0;
+let lastBallY = 0;
+let throwVX = 0;
+let throwVY = 0;
 
 // alarm controls.
 let alarmInput;
@@ -100,8 +118,7 @@ function draw() {
     stage === "timer" &&
     Date.now() >= timerEnds
   ) {
-    stage = "pet";
-    startBarking();
+    startFetch();
   }
 
   // Begin the walk after five quiet seconds.
@@ -121,6 +138,10 @@ function draw() {
     drawParkScene();
     drawDog();
     drawConfetti();
+  } else if (stage === "fetch") {
+    updateFetch();
+    drawBedroom(false);
+    drawFetch();
   } else {
     drawBedroom(night);
     drawBasketBack();
@@ -171,22 +192,23 @@ function draw() {
     );
   }
 
-  if (stage === "pet") {
-    text("Rub my tummy!", 250, 80);
+  if (stage === "fetch") {
+    text("Let's play fetch!", 250, 78);
 
-    // Progress bar background.
-    fill("#e9dcc4");
-    rect(150, 450, 200, 15, 7);
+    // One ball icon per fetch, filled in when done.
+    for (let i = 0; i < fetchTarget; i++) {
+      let x = 250 + (i - (fetchTarget - 1) / 2) * 26;
 
-    // Progress increases with rubbing movement.
-    fill("#397d6b");
-    rect(
-      150,
-      450,
-      200 * min(rubAmount / rubTarget, 1),
-      15,
-      7
-    );
+      if (i < fetchCount) {
+        drawTennisBall(x, 106, 8);
+      } else {
+        noFill();
+        stroke("#c9b48f");
+        strokeWeight(2);
+        circle(x, 106, 16);
+        noStroke();
+      }
+    }
   }
 
   if (stage === "quiet") {
@@ -229,7 +251,7 @@ function draw() {
 function resetSession() {
   stopBarking();
 
-  rubAmount = 0;
+  draggingBall = false;
   hearts = [];
   confetti = [];
 
@@ -300,7 +322,7 @@ function setAlarm() {
 // ---------- The dog ----------
 
 function drawDog(showShadow = true) {
-  let barking = stage === "pet" || stage === "walk";
+  let barking = stage === "fetch" || stage === "walk";
   let sleeping = stage === "ready" || stage === "timer";
   let happy = stage === "quiet" || stage === "done";
 
@@ -357,25 +379,13 @@ function drawDog(showShadow = true) {
   fluff(176, 394, 72, 42);
   fluff(324, 394, 72, 42);
 
-  // Only show the tummy target during the first alarm.
-  if (stage === "pet") {
-    fill("#e1f1e6");
-    stroke("#397d6b");
-    strokeWeight(2);
-    ellipse(250, 325, 100, 100);
-
-    noStroke();
-    fill("#397d6b");
-    textSize(14);
-    text("Rub here", 250, 325);
-  }
-
   // The head tilts toward a nearby cursor.
   let targetTilt = 0;
 
   if (
     !sleeping &&
     stage !== "walk" &&
+    stage !== "fetch" &&
     dist(mouseX, mouseY, 250, 230) < 140
   ) {
     targetTilt = map(mouseX, 110, 390, -0.14, 0.14, true);
@@ -886,6 +896,214 @@ function finishAlarm() {
   message.html("Good morning! Set a new alarm whenever you like.");
 }
 
+// ---------- Fetch ----------
+
+function startFetch() {
+  stage = "fetch";
+
+  fetchState = "waiting";
+  fetchCount = 0;
+  dogX = homeX;
+  dogFacing = 1;
+  dogRunning = false;
+  draggingBall = false;
+
+  ball = { x: homeX + 100, y: ballGround, vx: 0, vy: 0 };
+
+  barkAudio.volume = 0.5;
+  startBarking();
+}
+
+// Where the dog's mouth is on the canvas.
+function mouthPos() {
+  let bob = dogRunning ? abs(sin(millis() / 90)) * 8 : 0;
+
+  return {
+    x: dogX,
+    y: fetchFloorY - bob + (264 - 408) * fetchDogScale
+  };
+}
+
+// Run toward a spot on the floor.
+function moveDogToward(targetX, step) {
+  targetX = constrain(targetX, 75, 425);
+  let dx = targetX - dogX;
+
+  if (abs(dx) < 3) {
+    dogX = targetX;
+    return;
+  }
+
+  // Flip the dog so its tail trails behind.
+  dogFacing = dx > 0 ? -1 : 1;
+  dogX += constrain(dx, -6 * step, 6 * step);
+  dogRunning = true;
+}
+
+function updateFetch() {
+  // Adjust movement for different frame rates.
+  let step = min(deltaTime, 50) / 16.67;
+  dogRunning = false;
+
+  // Measure how fast the ball is being moved, for the throw.
+  if (draggingBall) {
+    throwVX = lerp(throwVX, (ball.x - lastBallX) / step, 0.5);
+    throwVY = lerp(throwVY, (ball.y - lastBallY) / step, 0.5);
+    lastBallX = ball.x;
+    lastBallY = ball.y;
+    return;
+  }
+
+  if (fetchState === "flying") {
+    // Ball physics: gravity, walls, bounces and rolling.
+    ball.vy += 0.5 * step;
+    ball.x += ball.vx * step;
+    ball.y += ball.vy * step;
+
+    if (ball.x < ballR || ball.x > width - ballR) {
+      ball.x = constrain(ball.x, ballR, width - ballR);
+      ball.vx *= -0.7;
+    }
+
+    if (ball.y < ballR) {
+      ball.y = ballR;
+      ball.vy *= -0.5;
+    }
+
+    let onGround = false;
+
+    if (ball.y >= ballGround) {
+      ball.y = ballGround;
+      onGround = true;
+
+      if (ball.vy > 1.5) {
+        ball.vy *= -0.55;
+        ball.vx *= 0.9;
+      } else {
+        ball.vy = 0;
+      }
+
+      ball.vx *= pow(0.96, step);
+    }
+
+    // The dog chases once the ball goes far enough,
+    // and keeps chasing even if it bounces back.
+    if (abs(ball.x - homeX) > 150) {
+      dogChasing = true;
+    }
+
+    if (dogChasing) {
+      moveDogToward(ball.x, step);
+
+      let mouth = mouthPos();
+
+      // Grab it off the floor, or catch it in the air.
+      if (
+        (onGround && abs(dogX - ball.x) < 70) ||
+        dist(mouth.x, mouth.y, ball.x, ball.y) < 30
+      ) {
+        fetchState = "returning";
+      }
+    } else {
+      moveDogToward(homeX, step);
+
+      // A weak throw: the ball stops near the dog, so throw again.
+      if (
+        onGround &&
+        abs(ball.vx) < 0.3 &&
+        dogX === homeX
+      ) {
+        fetchState = "waiting";
+        dogFacing = 1;
+      }
+    }
+  } else if (fetchState === "returning") {
+    moveDogToward(homeX, step);
+
+    // Drop the ball back at home.
+    if (dogX === homeX) {
+      fetchCount++;
+      fetchState = "waiting";
+      dogFacing = 1;
+
+      ball = { x: homeX + 100, y: ballGround, vx: 0, vy: 0 };
+
+      for (let i = 0; i < 6; i++) {
+        addHeart(dogX + random(-40, 40), 360 + random(-20, 20));
+      }
+
+      // The barking gets quieter with every fetch.
+      barkAudio.volume = 0.5 * (1 - fetchCount / (fetchTarget + 1));
+
+      if (fetchCount >= fetchTarget) {
+        stopBarking();
+        stage = "quiet";
+        quietStarted = millis();
+
+        for (let i = 0; i < 12; i++) {
+          addHeart(250 + random(-50, 50), 325 + random(-40, 40));
+        }
+      }
+    }
+  }
+}
+
+function drawFetch() {
+  // Ball shadow on the floor.
+  let ballHeight = ballGround - ball.y;
+  let shadowSize = map(ballHeight, 0, 300, 1, 0.4, true);
+
+  if (fetchState !== "returning") {
+    noStroke();
+    fill(0, 0, 0, 35);
+    ellipse(ball.x, ballGround + ballR - 1, 28 * shadowSize, 7 * shadowSize);
+  }
+
+  // The dog, bouncing while it runs.
+  let bob = dogRunning ? abs(sin(millis() / 90)) * 8 : 0;
+
+  push();
+  translate(dogX, fetchFloorY - bob);
+  scale(dogFacing * fetchDogScale, fetchDogScale);
+  translate(-250, -408);
+  drawDog();
+  pop();
+
+  // The ball: in the dog's mouth, or on its own.
+  if (fetchState === "returning") {
+    let mouth = mouthPos();
+    drawTennisBall(mouth.x, mouth.y, 12);
+    return;
+  }
+
+  // A soft pulse shows the ball is ready to throw.
+  if (fetchState === "waiting" && !draggingBall) {
+    let pulse = (millis() % 1200) / 1200;
+
+    noFill();
+    stroke(255, 255, 255, 220 * (1 - pulse));
+    strokeWeight(3);
+    circle(ball.x, ball.y, ballR * 2 + pulse * 26);
+    noStroke();
+  }
+
+  drawTennisBall(ball.x, ball.y, ballR);
+}
+
+function drawTennisBall(x, y, r) {
+  noStroke();
+  fill("#d4e83a");
+  circle(x, y, r * 2);
+
+  // White seams.
+  noFill();
+  stroke(255, 255, 255, 230);
+  strokeWeight(max(1.5, r * 0.16));
+  arc(x - r * 0.9, y, r * 1.4, r * 1.6, -HALF_PI * 0.9, HALF_PI * 0.9);
+  arc(x + r * 0.9, y, r * 1.4, r * 1.6, PI - HALF_PI * 0.9, PI + HALF_PI * 0.9);
+  noStroke();
+}
+
 // ---------- Walk the dog ----------
 
 function startWalk() {
@@ -1151,43 +1369,44 @@ function keyPressed() {
   }
 }
 
+function mousePressed() {
+  // Pick up the ball while the dog is waiting.
+  if (
+    stage === "fetch" &&
+    fetchState === "waiting" &&
+    dist(mouseX, mouseY, ball.x, ball.y) <= 30
+  ) {
+    draggingBall = true;
+    lastBallX = ball.x;
+    lastBallY = ball.y;
+    throwVX = 0;
+    throwVY = 0;
+  }
+}
+
 function mouseDragged() {
-  if (stage === "pet") {
-    // Both mouse positions must be inside the tummy.
-    let insideNow =
-      dist(mouseX, mouseY, 250, 325) <= 50;
-
-    let insideBefore =
-      dist(pmouseX, pmouseY, 250, 325) <= 50;
-
-    if (insideNow && insideBefore) {
-      rubAmount += dist(
-        mouseX,
-        mouseY,
-        pmouseX,
-        pmouseY
-      );
-
-      // Hearts float up while rubbing.
-      if (random() < 0.15) {
-        addHeart(mouseX, mouseY);
-      }
-
-      // Stop the first barking stage.
-      if (rubAmount >= rubTarget) {
-        stopBarking();
-        stage = "quiet";
-        quietStarted = millis();
-
-        // A burst of hearts when the dog is happy.
-        for (let i = 0; i < 12; i++) {
-          addHeart(250 + random(-50, 50), 325 + random(-40, 40));
-        }
-      }
-    }
+  // Carry the ball with the mouse.
+  if (draggingBall) {
+    ball.x = constrain(mouseX, ballR, width - ballR);
+    ball.y = constrain(mouseY, ballR, ballGround);
   }
 
   return false;
+}
+
+function mouseReleased() {
+  if (!draggingBall) return;
+
+  draggingBall = false;
+
+  // Throw the ball with the speed the mouse was moving.
+  let throwSpeed = createVector(throwVX, throwVY);
+  throwSpeed.limit(22);
+
+  ball.vx = throwSpeed.x;
+  ball.vy = throwSpeed.y;
+  fetchState = "flying";
+  dogChasing = false;
 }
 
 function prepareBarkAudio() {
