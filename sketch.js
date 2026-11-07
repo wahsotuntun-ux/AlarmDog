@@ -203,20 +203,14 @@ function draw() {
   }
 
   if (stage === "walk") {
-    if (millis() < stunnedUntil) {
-      text("Splash! Jump over the puddles!", 250, 70);
-    } else {
-      text("Hold → to walk. Press SPACE to jump!", 250, 70);
-    }
-
     // Walk progress bar.
     fill("#ffffff");
-    rect(150, 92, 200, 12, 6);
+    rect(150, 72, 200, 12, 6);
 
     fill("#397d6b");
     rect(
       150,
-      92,
+      72,
       200 * min(walkDistance / walkGoal, 1),
       12,
       6
@@ -226,16 +220,8 @@ function draw() {
   if (stage === "done") {
     textSize(24);
     textStyle(BOLD);
-    text("Good morning!", 250, 78);
+    text("Good morning!", 250, 80);
     textStyle(NORMAL);
-
-    textSize(15);
-    text(
-      "Up at " + wakeTimeText +
-      "  ·  Puddle splashes: " + walkHits,
-      250,
-      108
-    );
   }
 }
 
